@@ -9,10 +9,32 @@ defmodule OpenIDConnect.Worker do
 
   @refresh_time 60 * 60 * 1000
 
-  def start_link(provider_configs, name \\ :openid_connect) do
+  @behaviour OpenIDConnect.ConfigProvider
+
+  @impl OpenIDConnect.ConfigProvider
+  def discovery_document(provider_id, opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.call(name, {:discovery_document, provider_id})
+  end
+
+  @impl OpenIDConnect.ConfigProvider
+  def config(provider_id, opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.call(name, {:config, provider_id})
+  end
+
+  @impl OpenIDConnect.ConfigProvider
+  def jwk(provider_id, opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
+    GenServer.call(name, {:jwk, provider_id})
+  end
+
+  def start_link(provider_configs, opts \\ []) do
+    name = Keyword.get(opts, :name, __MODULE__)
     GenServer.start_link(__MODULE__, provider_configs, name: name)
   end
 
+  @impl GenServer
   def init(:ignore) do
     :ignore
   end
@@ -27,6 +49,7 @@ defmodule OpenIDConnect.Worker do
     {:ok, state}
   end
 
+  @impl GenServer
   def handle_call({:discovery_document, provider}, _from, state) do
     discovery_document = get_in(state, [provider, :documents, :discovery_document])
     {:reply, discovery_document, state}
@@ -42,6 +65,7 @@ defmodule OpenIDConnect.Worker do
     {:reply, config, state}
   end
 
+  @impl GenServer
   def handle_info({:update_documents, provider}, state) do
     config = get_in(state, [provider, :config])
     documents = update_documents(provider, config)

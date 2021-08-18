@@ -185,7 +185,7 @@ defmodule OpenIDConnectTest do
 
   describe "generating the authorization uri" do
     test "with default worker name" do
-      {:ok, pid} = GenServer.start_link(MockWorker, [], name: :openid_connect)
+      {:ok, pid} = GenServer.start_link(MockWorker, [], name: OpenIDConnect.Worker)
 
       try do
         expected =
@@ -198,7 +198,7 @@ defmodule OpenIDConnectTest do
     end
 
     test "with optional params" do
-      {:ok, pid} = GenServer.start_link(MockWorker, [], name: :openid_connect)
+      {:ok, pid} = GenServer.start_link(MockWorker, [], name: OpenIDConnect.Worker)
 
       try do
         expected =
@@ -211,7 +211,7 @@ defmodule OpenIDConnectTest do
     end
 
     test "with overridden params" do
-      {:ok, pid} = GenServer.start_link(MockWorker, [], name: :openid_connect)
+      {:ok, pid} = GenServer.start_link(MockWorker, [], name: OpenIDConnect.Worker)
 
       try do
         expected =
@@ -230,7 +230,7 @@ defmodule OpenIDConnectTest do
         expected =
           "https://accounts.google.com/o/oauth2/v2/auth?client_id=CLIENT_ID_1&redirect_uri=https%3A%2F%2Fdev.example.com%3A4200%2Fsession&response_type=code+id_token+token&scope=openid+email+profile"
 
-        assert OpenIDConnect.authorization_uri(:google, %{}, :other_openid_worker) == expected
+        assert OpenIDConnect.authorization_uri(:google, %{}, {OpenIDConnect.Worker, name: :other_openid_worker}) == expected
       after
         GenServer.stop(pid)
       end
@@ -239,9 +239,9 @@ defmodule OpenIDConnectTest do
 
   describe "fetching tokens" do
     test "when token fetch is successful" do
-      {:ok, pid} = GenServer.start_link(MockWorker, [], name: :openid_connect)
+      {:ok, pid} = GenServer.start_link(MockWorker, [], name: OpenIDConnect.Worker)
 
-      config = GenServer.call(:openid_connect, {:config, :google})
+      config = OpenIDConnect.Worker.config(:google)
 
       form_body = [
         client_id: config[:client_id],
@@ -270,7 +270,7 @@ defmodule OpenIDConnectTest do
     test "when token fetch is successful with a different GenServer name" do
       {:ok, pid} = GenServer.start_link(MockWorker, [], name: :other_openid_connect)
 
-      config = GenServer.call(:other_openid_connect, {:config, :google})
+      config = OpenIDConnect.Worker.config(:google, name: :other_openid_connect)
 
       form_body = [
         client_id: config[:client_id],
@@ -293,7 +293,7 @@ defmodule OpenIDConnectTest do
           OpenIDConnect.fetch_tokens(
             :google,
             %{code: "1234", id_token: "abcd"},
-            :other_openid_connect
+            {OpenIDConnect.Worker, name: :other_openid_connect}
           )
 
         assert body == %{}
@@ -303,9 +303,9 @@ defmodule OpenIDConnectTest do
     end
 
     test "when params are overridden" do
-      {:ok, pid} = GenServer.start_link(MockWorker, [], name: :openid_connect)
+      {:ok, pid} = GenServer.start_link(MockWorker, [], name: OpenIDConnect.Worker)
 
-      config = GenServer.call(:openid_connect, {:config, :google})
+      config = OpenIDConnect.Worker.config(:google)
 
       form_body = [
         client_id: config[:client_id],
@@ -331,7 +331,7 @@ defmodule OpenIDConnectTest do
     end
 
     test "when token fetch fails with bad domain" do
-      {:ok, pid} = GenServer.start_link(MockWorker, [], name: :openid_connect)
+      {:ok, pid} = GenServer.start_link(MockWorker, [], name: OpenIDConnect.Worker)
 
       http_error = %HTTPoison.Error{reason: :nxdomain}
 
@@ -352,7 +352,7 @@ defmodule OpenIDConnectTest do
     end
 
     test "when token fetch doesn't return a 200 response" do
-      {:ok, pid} = GenServer.start_link(MockWorker, [], name: :openid_connect)
+      {:ok, pid} = GenServer.start_link(MockWorker, [], name: OpenIDConnect.Worker)
 
       http_error = %HTTPoison.Response{status_code: 404}
 
@@ -375,7 +375,7 @@ defmodule OpenIDConnectTest do
 
   describe "jwt verification" do
     test "is successful" do
-      {:ok, pid} = GenServer.start_link(MockWorker, [], name: :openid_connect)
+      {:ok, pid} = GenServer.start_link(MockWorker, [], name: OpenIDConnect.Worker)
 
       try do
         {jwk, []} = Code.eval_file("test/fixtures/rsa/jwk1.exs")
@@ -397,7 +397,7 @@ defmodule OpenIDConnectTest do
     end
 
     test "is successful with multiple jwks" do
-      {:ok, pid} = GenServer.start_link(MockWorker, [], name: :openid_connect)
+      {:ok, pid} = GenServer.start_link(MockWorker, [], name: OpenIDConnect.Worker)
 
       try do
         {jwk, []} = Code.eval_file("test/fixtures/rsa/jwks.exs")
@@ -421,7 +421,7 @@ defmodule OpenIDConnectTest do
     end
 
     test "fails with invalid token format" do
-      {:ok, pid} = GenServer.start_link(MockWorker, [], name: :openid_connect)
+      {:ok, pid} = GenServer.start_link(MockWorker, [], name: OpenIDConnect.Worker)
 
       try do
         {jwk, []} = Code.eval_file("test/fixtures/rsa/jwk1.exs")
@@ -435,7 +435,7 @@ defmodule OpenIDConnectTest do
     end
 
     test "fails with invalid token claims format" do
-      {:ok, pid} = GenServer.start_link(MockWorker, [], name: :openid_connect)
+      {:ok, pid} = GenServer.start_link(MockWorker, [], name: OpenIDConnect.Worker)
 
       try do
         {jwk, []} = Code.eval_file("test/fixtures/rsa/jwk1.exs")
@@ -458,7 +458,7 @@ defmodule OpenIDConnectTest do
     end
 
     test "fails with token not including algorithm hint" do
-      {:ok, pid} = GenServer.start_link(MockWorker, [], name: :openid_connect)
+      {:ok, pid} = GenServer.start_link(MockWorker, [], name: OpenIDConnect.Worker)
 
       try do
         {jwk, []} = Code.eval_file("test/fixtures/rsa/jwk1.exs")
@@ -481,7 +481,7 @@ defmodule OpenIDConnectTest do
     end
 
     test "fails when verification fails" do
-      {:ok, pid} = GenServer.start_link(MockWorker, [], name: :openid_connect)
+      {:ok, pid} = GenServer.start_link(MockWorker, [], name: OpenIDConnect.Worker)
 
       try do
         {jwk1, []} = Code.eval_file("test/fixtures/rsa/jwk1.exs")
@@ -504,7 +504,7 @@ defmodule OpenIDConnectTest do
     end
 
     test "fails when verification fails due to token manipulation" do
-      {:ok, pid} = GenServer.start_link(MockWorker, [], name: :openid_connect)
+      {:ok, pid} = GenServer.start_link(MockWorker, [], name: OpenIDConnect.Worker)
 
       try do
         {jwk, []} = Code.eval_file("test/fixtures/rsa/jwk1.exs")

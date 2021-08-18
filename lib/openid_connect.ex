@@ -22,7 +22,7 @@ defmodule OpenIDConnect do
 
   This atom should match what you've used in your application config
   """
-  @type provider :: atom
+  @type provider_id :: atom
 
   @typedoc """
   The payload of user data from the provider
@@ -30,11 +30,10 @@ defmodule OpenIDConnect do
   @type claims :: map
 
   @typedoc """
-  The name of the genserver
-
-  This is optional and will default to `:openid_connect` unless overridden
+  Specifies the OpenIDConnect.ConfigProvider implementation to use. Either as a module or as a
+  `{module, opts}` tuple.
   """
-  @type name :: atom
+  @type config_provider :: atom | {atom, Keyword.t()}
 
   @typedoc """
   Query param map
@@ -58,7 +57,7 @@ defmodule OpenIDConnect do
   The 2nd element will indicate which function failed
   The 3rd element will give details of the failure
   """
-  @type error(name) :: {:error, name, reason}
+  @type error(atom) :: {:error, atom, reason}
 
   @typedoc """
   A provider's documents
@@ -73,7 +72,7 @@ defmodule OpenIDConnect do
           remaining_lifetime: integer | nil
         }
 
-  @spec authorization_uri(provider, params, name) :: uri
+  @spec authorization_uri(provider_id, params, config_provider) :: uri
   @doc """
   Builds the authorization URI according to the spec in the providers discovery document
 
@@ -85,9 +84,9 @@ defmodule OpenIDConnect do
   > It is *highly suggested* that you add the `state` param for security reasons. Your
   > OpenID Connect provider should have more information on this topic.
   """
-  def authorization_uri(provider, params \\ %{}, name \\ :openid_connect) do
-    document = discovery_document(provider, name)
-    config = config(provider, name)
+  def authorization_uri(provider_id, params \\ %{}, config_provider \\ OpenIDConnect.Worker) do
+    document = discovery_document(provider_id, config_provider)
+    config = config(provider_id, config_provider)
 
     uri = Map.get(document, "authorization_endpoint")
 
@@ -96,8 +95,8 @@ defmodule OpenIDConnect do
         %{
           client_id: client_id(config),
           redirect_uri: redirect_uri(config),
-          response_type: response_type(provider, config, name),
-          scope: normalize_scope(provider, config[:scope])
+          response_type: response_type(provider_id, config, config_provider),
+          scope: normalize_scope(provider_id, config[:scope])
         },
         params
       )
@@ -105,7 +104,7 @@ defmodule OpenIDConnect do
     build_uri(uri, params)
   end
 
-  @spec fetch_tokens(provider, params, name) :: success(map) | error(:fetch_tokens)
+  @spec fetch_tokens(provider_id, params, config_provider) :: success(map) | error(:fetch_tokens)
   @doc """
   Fetches the authentication tokens from the provider
 
@@ -113,19 +112,19 @@ defmodule OpenIDConnect do
   was requested during authorization. `params` may also include any one-off overrides for token
   fetching.
   """
-  def fetch_tokens(provider, params, name \\ :openid_connect)
+  def fetch_tokens(provider_id, params, config_provider \\ OpenIDConnect.Worker)
 
-  def fetch_tokens(provider, code, name) when is_binary(code) do
+  def fetch_tokens(provider_id, code, config_provider) when is_binary(code) do
     IO.warn(
       "Deprecation: `OpenIDConnect.fetch_tokens/3` no longer takes a binary as the 2nd argument. Please refer to the docs for the new API."
     )
 
-    fetch_tokens(provider, %{code: code}, name)
+    fetch_tokens(provider_id, %{code: code}, config_provider)
   end
 
-  def fetch_tokens(provider, params, name) do
-    uri = access_token_uri(provider, name)
-    config = config(provider, name)
+  def fetch_tokens(provider_id, params, name) do
+    uri = access_token_uri(provider_id, name)
+    config = config(provider_id, name)
 
     form_body =
       Map.merge(
@@ -152,15 +151,15 @@ defmodule OpenIDConnect do
     end
   end
 
-  @spec verify(provider, jwt, name) :: success(claims) | error(:verify)
+  @spec verify(provider_id, jwt, config_provider) :: success(claims) | error(:verify)
   @doc """
   Verifies the validity of the JSON Web Token (JWT)
 
   This verification will assert the token's encryption against the provider's
   JSON Web Key (JWK)
   """
-  def verify(provider, jwt, name \\ :openid_connect) do
-    jwk = jwk(provider, name)
+  def verify(provider_id, jwt, config_provider \\ OpenIDConnect.Worker) do
+    jwk = jwk(provider_id, config_provider)
 
     with {:ok, protected} <- peek_protected(jwt),
          {:ok, decoded_protected} <- Jason.decode(protected),
@@ -266,20 +265,36 @@ defmodule OpenIDConnect do
     end
   end
 
-  defp discovery_document(provider, name) do
-    GenServer.call(name, {:discovery_document, provider})
+  defp discovery_document(provider_id, {provider_module, opts}) when is_atom(provider_module) do
+    provider_module.discovery_document(provider_id, opts)
   end
 
-  defp jwk(provider, name) do
-    GenServer.call(name, {:jwk, provider})
+  defp discovery_document(provider_id, config_provider) when is_atom(config_provider) do
+    discovery_document(provider_id, {config_provider, []})
+  end
+
+  defp jwk(provider_id, {provider_module, opts}) do
+    provider_module.jwk(provider_id, opts)
+  end
+
+  defp jwk(provider_id, config_provider) when is_atom(config_provider) do
+    jwk(provider_id, {config_provider, []})
+  end
+
+  defp config(provider_id, {provider_module, opts}) do
+    provider_module.config(provider_id, opts)
+  end
+
+  defp config(provider_id, config_provider) when is_atom(config_provider) do
+    config(provider_id, {config_provider, []})
   end
 
   defp config(provider, name) do
     GenServer.call(name, {:config, provider})
   end
 
-  defp access_token_uri(provider, name) do
-    Map.get(discovery_document(provider, name), "token_endpoint")
+  defp access_token_uri(provider, config_provider) do
+    Map.get(discovery_document(provider, config_provider), "token_endpoint")
   end
 
   defp client_id(config) do
@@ -333,9 +348,9 @@ defmodule OpenIDConnect do
     |> Enum.join(" ")
   end
 
-  defp response_types_supported(provider, name) do
+  defp response_types_supported(provider, config_provider) do
     provider
-    |> discovery_document(name)
+    |> discovery_document(config_provider)
     |> Map.get("response_types_supported")
   end
 
